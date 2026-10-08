@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review Radar – Customer Feedback AI</title>
+<style>
+  :root { --p:#6c5ce7; --bg:#f6f7fb; --tx:#1f2430; --mut:#6b7280; --pos:#22c55e; --neu:#f59e0b; --neg:#ef4444; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Arial,sans-serif; background:var(--bg); color:var(--tx); }
+  header { padding:18px 24px; background:var(--p); color:#fff; }
+  header h1 { margin:0; font-size:22px; } header p { margin:4px 0 0; font-size:13px; opacity:.85; }
+  main { max-width:1150px; margin:18px auto; padding:0 16px; }
+  .card { background:#fff; border-radius:12px; padding:16px; box-shadow:0 1px 4px rgba(0,0,0,.08); margin-bottom:16px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+  .tabs { display:flex; gap:8px; margin-bottom:16px; }
+  .tabs button { flex:1; padding:12px; border:2px solid var(--p); background:#fff; color:var(--p); font-size:15px; font-weight:600; border-radius:10px; cursor:pointer; }
+  .tabs button.on { background:var(--p); color:#fff; }
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
+  .kpi { background:#fff; border-radius:12px; padding:14px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  .kpi small { color:var(--mut); } .kpi div { font-size:26px; font-weight:700; margin-top:4px; text-transform:capitalize; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:16px; } .chart { position:relative; height:280px; }
+  @media (max-width:800px){ .kpis{grid-template-columns:1fr 1fr;} .two{grid-template-columns:1fr;} }
+  textarea { width:100%; min-height:90px; padding:12px; font-size:16px; border:1px solid #d1d5db; border-radius:8px; font-family:inherit; }
+  button.go { padding:11px 22px; background:var(--p); color:#fff; border:0; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; margin-top:10px; }
+  button.go:disabled { opacity:.6; } select, input[type=file] { padding:7px; border:1px solid #d1d5db; border-radius:8px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; } td,th { padding:8px 6px; border-bottom:1px solid #eee; text-align:left; vertical-align:top; }
+  .tag { padding:2px 9px; border-radius:12px; color:#fff; font-size:12px; text-transform:capitalize; }
+  .reply { background:#eef2ff; border-left:5px solid var(--p); padding:12px 14px; border-radius:8px; margin-top:8px; line-height:1.5; }
+  .mut { color:var(--mut); font-size:13px; } .hide { display:none; } label.chk { margin-right:10px; font-size:14px; }
+  pre { white-space:pre-wrap; background:#f3f4f6; padding:12px; border-radius:8px; font-size:13px; }
+</style>
+</head>
+<body>
+<header><h1>📡 Review Radar – Customer Feedback AI</h1><p id="meta"></p></header>
+<main>
+  <div class="card">
+    <div class="row">
+      <div>Reviews CSV: <input type="file" id="file" accept=".csv"></div>
+      <div>Text column: <select id="col"></select></div>
+      <button id="reset" class="go" style="margin:0;padding:8px 14px;background:#6b7280">Use sample data</button>
+    </div>
+    <div id="branches" style="margin-top:10px"></div>
+  </div>
+
+  <div class="tabs"><button id="t1" class="on">📊 Dashboard</button><button id="t2">✍️ Try a review</button><button id="t3">🧠 AI manager report</button></div>
+
+  <section id="p1">
+    <div class="kpis">
+      <div class="kpi"><small>Reviews</small><div id="k1"></div></div><div class="kpi"><small>Negative</small><div id="k2"></div></div>
+      <div class="kpi"><small>Avg rating</small><div id="k3"></div></div><div class="kpi"><small>Top complaint</small><div id="k4"></div></div>
+    </div>
+    <div class="two">
+      <div class="card"><b>Sentiment by branch</b><div class="chart"><canvas id="c1"></canvas></div></div>
+      <div class="card"><b>What customers complain about</b><div class="chart"><canvas id="c2"></canvas></div></div>
+    </div>
+    <div class="card"><b>Negative reviews % over time</b><div class="chart"><canvas id="c3"></canvas></div></div>
+    <div class="card"><b>Latest negative reviews</b><div id="neg"></div></div>
+  </section>
+
+  <section id="p2" class="hide"><div class="card">
+    <b>Paste a customer review (English or Roman Urdu)</b>
+    <textarea id="txt">Delivery bohat late thi aur khana thanda tha</textarea>
+    <button class="go" id="analyze">Analyze</button>
+    <div id="out"></div>
+  </div></section>
+
+  <section id="p3" class="hide"><div class="card">
+    <button class="go" id="report" style="margin-top:0">Generate report</button>
+    <div id="rep" style="margin-top:12px"></div>
+  </div></section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="model.js"></script>
+<script src="reviews.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const COL = { positive:'#22c55e', neutral:'#f59e0b', negative:'#ef4444' };
+$('meta').textContent = `Models run in your browser | Sentiment accuracy ${(MODEL.acc.sentiment*100).toFixed(0)}% | Topic accuracy ${(MODEL.acc.topic*100).toFixed(0)}% (held-out reviews)`;
+
+// ---------- text model (TF-IDF char n-grams + logistic regression, exported from scikit-learn) ----------
+function ngrams(text) {
+  const out = [];
+  for (const w0 of text.toLowerCase().split(/\s+/).filter(Boolean)) {
+    const w = Array.from(' ' + w0 + ' '), L = w.length;
+    for (let n = 2; n <= 4; n++) {
+      let off = 0; out.push(w.slice(0, n).join(''));
+      while (off + n < L) { off++; out.push(w.slice(off, off + n).join('')); }
+      if (off === 0) break;
+    }
+  }
+  return out;
+}
+function vectorize(text) {
+  const cnt = {};
+  for (const g of ngrams(text)) { const i = MODEL.vocab[g]; if (i !== undefined) cnt[i] = (cnt[i] || 0) + 1; }
+  const v = {}; let norm = 0;
+  for (const i in cnt) { v[i] = (1 + Math.log(cnt[i])) * MODEL.idf[i]; norm += v[i] * v[i]; }
+  norm = Math.sqrt(norm) || 1; for (const i in v) v[i] /= norm;
+  return v;
+}
+function predict(kind, v) {
+  const m = MODEL[kind];
+  const s = m.classes.map((_, c) => { let t = m.intercept[c]; for (const i in v) t += v[i] * m.coef[c][i]; return t; });
+  const mx = Math.max(...s), e = s.map(x => Math.exp(x - mx)), z = e.reduce((a, b) => a + b, 0);
+  const p = e.map(x => x / z), k = p.indexOf(Math.max(...p));
+  return { label: m.classes[k], conf: p[k] };
+}
+const analyze = text => { const v = vectorize(text); return { s: predict('sentiment', v), t: predict('topic', v) }; };
+
+// ---------- data ----------
+let ALL = [], COLS = [], TEXT = '', SEL = new Set(), charts = {};
+function setData(rows) {
+  rows = rows.filter(r => r && Object.keys(r).length);
+  if (!rows.length) return alert('No rows found in this file.');
+  ALL = rows; COLS = Object.keys(rows[0]);
+  const strCols = COLS.filter(c => rows.slice(0, 30).some(r => typeof r[c] === 'string'));
+  const avg = c => rows.slice(0, 200).reduce((a, r) => a + String(r[c] ?? '').length, 0);
+  TEXT = strCols.includes('review_text') ? 'review_text' : strCols.sort((a, b) => avg(b) - avg(a))[0];
+  $('col').innerHTML = strCols.map(c => `<option ${c === TEXT ? 'selected' : ''}>${esc(c)}</option>`).join('');
+  label();
+}
+function label() {
+  ALL.forEach(r => { const a = analyze(String(r[TEXT] ?? '')); r._s = a.s.label; r._t = a.t.label; });
+  if (COLS.includes('branch')) {
+    const bs = [...new Set(ALL.map(r => r.branch))]; SEL = new Set(bs);
+    $('branches').innerHTML = 'Branch: ' + bs.map(b => `<label class="chk"><input type="checkbox" value="${esc(b)}" checked> ${esc(b)}</label>`).join('');
+    $('branches').querySelectorAll('input').forEach(i => i.onchange = () => { i.checked ? SEL.add(i.value) : SEL.delete(i.value); render(); });
+  } else $('branches').innerHTML = '';
+  render();
+}
+const filtered = () => COLS.includes('branch') ? ALL.filter(r => SEL.has(r.branch)) : ALL;
+const monthOf = d => { const s = String(d ?? ''); if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7); const t = new Date(s); return isNaN(t) ? null : t.toISOString().slice(0, 7); };
+const count = (arr, f) => arr.reduce((o, x) => (o[f(x)] = (o[f(x)] || 0) + 1, o), {});
+const mode = o => Object.entries(o).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'none';
+function draw(id, cfg) {
+  charts[id]?.destroy();
+  cfg.options = Object.assign({ maintainAspectRatio: false, animation: false }, cfg.options || {});
+  charts[id] = new Chart($(id), cfg);
+}
+
+function render() {
+  const f = filtered(), neg = f.filter(r => r._s === 'negative');
+  $('k1').textContent = f.length.toLocaleString();
+  $('k2').textContent = f.length ? Math.round(neg.length / f.length * 100) + '%' : '0%';
+  const rated = f.map(r => Number(r.rating)).filter(x => !isNaN(x) && x > 0);
+  $('k3').textContent = rated.length ? (rated.reduce((a, b) => a + b, 0) / rated.length).toFixed(2) + ' ⭐' : 'n/a';
+  $('k4').textContent = mode(count(neg, r => r._t));
+
+  const hasB = COLS.includes('branch'), groups = hasB ? [...SEL] : ['All reviews'];
+  draw('c1', { type: 'bar', data: { labels: groups, datasets: ['positive', 'neutral', 'negative'].map(s => ({
+    label: s, backgroundColor: COL[s], data: groups.map(g => f.filter(r => (!hasB || r.branch === g) && r._s === s).length) })) },
+    options: { scales: { x: { stacked: true }, y: { stacked: true } } } });
+  const tc = Object.entries(count(neg, r => r._t)).sort((a, b) => b[1] - a[1]);
+  draw('c2', { type: 'bar', data: { labels: tc.map(x => x[0]), datasets: [{ label: 'Negative reviews', backgroundColor: '#6c5ce7', data: tc.map(x => x[1]) }] } });
+
+  const months = [...new Set(f.map(r => monthOf(r.date)).filter(Boolean))].sort();
+  const pct = (g, m) => { const rr = f.filter(r => monthOf(r.date) === m && (!hasB || r.branch === g)); return rr.length ? +(rr.filter(r => r._s === 'negative').length / rr.length * 100).toFixed(1) : null; };
+  const pal = ['#6c5ce7', '#ef4444', '#22c55e', '#f59e0b', '#0ea5e9', '#ec4899'];
+  draw('c3', { type: 'line', data: { labels: months, datasets: groups.map((g, i) => ({ label: g, borderColor: pal[i % 6], backgroundColor: pal[i % 6], tension: .25, data: months.map(m => pct(g, m)) })) },
+    options: { scales: { y: { title: { display: true, text: 'Negative %' } } } } });
+
+  $('neg').innerHTML = '<table><tr>' + ['Date', 'Branch', 'Rating', 'Review', 'Topic'].map(h => `<th>${h}</th>`).join('') + '</tr>' +
+    neg.slice(-10).reverse().map(r => `<tr><td>${esc(String(r.date ?? '').slice(0, 10))}</td><td>${esc(r.branch ?? '')}</td><td>${esc(r.rating ?? '')}</td><td>${esc(r[TEXT])}</td><td>${esc(r._t)}</td></tr>`).join('') + '</table>';
+}
+
+// ---------- AI (server function keeps the API key private) ----------
+async function api(body) {
+  try {
+    const r = await fetch('/api/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await r.json(); return r.ok ? j.text : null;
+  } catch (e) { return null; }
+}
+const md = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
+const FALLBACK = { negative: "We're sorry about your experience. Please DM us your order details so we can make it right.",
+  neutral: "Thank you for your feedback! We'd love to know how we can make your next visit better.",
+  positive: "Thank you so much for the kind words! We can't wait to serve you again." };
+
+$('analyze').onclick = async () => {
+  const text = $('txt').value.trim(); if (!text) return;
+  const a = analyze(text);
+  $('out').innerHTML = `<div class="row" style="margin-top:14px"><div class="kpi" style="min-width:200px"><small>Sentiment</small><div><span class="tag" style="background:${COL[a.s.label]}">${a.s.label}</span></div><small>${(a.s.conf*100).toFixed(0)}% confident</small></div>
+    <div class="kpi" style="min-width:200px"><small>Topic</small><div>${a.t.label}</div><small>${(a.t.conf*100).toFixed(0)}% confident</small></div></div>
+    <p><b>Suggested reply</b></p><div class="reply" id="reply">Writing reply…</div>`;
+  const t = await api({ kind: 'reply', review: text, sentiment: a.s.label, topic: a.t.label });
+  $('reply').innerHTML = t ? md(t) : esc(FALLBACK[a.s.label]) + '<br><span class="mut">(Template reply – AI key not set or unavailable.)</span>';
+};
+
+$('report').onclick = async () => {
+  const f = filtered(), neg = f.filter(r => r._s === 'negative'), hasB = COLS.includes('branch');
+  const by = Object.entries(count(neg, r => (hasB ? r.branch + ' / ' : '') + r._t)).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const step = Math.max(1, Math.floor(neg.length / 12));
+  const facts = `Total reviews: ${f.length}, negative: ${neg.length} (${f.length ? Math.round(neg.length / f.length * 100) : 0}%).\nTop complaint groups:\n` +
+    by.map(([k, v]) => `${k}: ${v}`).join('\n') + '\n\nSample negative reviews:\n' + neg.filter((_, i) => i % step === 0).slice(0, 12).map(r => '- ' + r[TEXT]).join('\n');
+  $('rep').textContent = 'Generating…'; $('report').disabled = true;
+  const t = await api({ kind: 'report', facts });
+  $('rep').innerHTML = t ? md(t) : `<b>Auto summary</b> <span class="mut">(set GEMINI_API_KEY on Vercel for the full AI report)</span><pre>${esc(facts)}</pre>`;
+  $('report').disabled = false;
+};
+
+// ---------- wiring ----------
+['t1', 't2', 't3'].forEach((id, i) => $(id).onclick = () => ['t1', 't2', 't3'].forEach((x, j) => {
+  $(x).classList.toggle('on', i === j); $('p' + (j + 1)).classList.toggle('hide', i !== j); }));
+$('file').onchange = e => e.target.files[0] && Papa.parse(e.target.files[0], { header: true, dynamicTyping: true, skipEmptyLines: true, complete: r => setData(r.data) });
+$('col').onchange = e => { TEXT = e.target.value; label(); };
+$('reset').onclick = () => { $('file').value = ''; setData(REVIEWS.map(r => ({ ...r }))); };
+setData(REVIEWS.map(r => ({ ...r })));
+</script>
+</body>
+</html>
